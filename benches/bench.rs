@@ -3,7 +3,8 @@ use criterion::{
 };
 use crypto_bigint::{
     modular::runtime_mod::{DynResidue, DynResidueParams},
-    Limb, NonZero, Random, Reciprocal, U128, U2048, U256,
+    Limb, NonZero, Random, Reciprocal, U128, U2048, U256, U4096, Wrapping
+
 };
 use rand_core::OsRng;
 
@@ -206,6 +207,53 @@ fn bench_inv_mod<M: Measurement>(group: &mut BenchmarkGroup<'_, M>) {
     });
 }
 
+
+fn bench_inv_mod_rsa<M: Measurement>(group: &mut BenchmarkGroup<'_, M>)
+{
+    group.bench_function("inv_mod, U2048, odd U2048 modulus", |b| {
+        b.iter_batched(
+            || {
+                let m = U2048::random(&mut OsRng) | U2048::ONE;
+                loop {
+                    let x = U2048::random(&mut OsRng);
+                    let (_, is_some) = x.inv_odd_mod(&m);
+                    if is_some.into() {
+                        break (x, m);
+                    }
+                }
+            },
+            |(x, m)| x.inv_mod(&m),
+            BatchSize::SmallInput,
+        )
+    });
+
+}
+
+fn bench_mod_exp_paillier<M: Measurement>(group: &mut BenchmarkGroup<'_, M>)
+{
+    group.bench_function("pow, U2048^U2048, odd U2048 modulus", |b| {
+        // big odd modulus
+        let modulo  = U2048::random(&mut OsRng) | U2048::ONE | (U2048::ONE << (U2048::BITS - 2));
+        let m_sqr = modulo.mul(&modulo);        
+        let params = DynResidueParams::new(&m_sqr);
+
+        let gamma = Wrapping(U2048::ONE) + Wrapping(modulo);
+        let gamma_ = DynResidue::new(&U4096::from(&gamma.0), params);
+
+        b.iter_batched(
+            || {
+                
+                let e = U2048::random(&mut OsRng);               
+                e
+            },
+            |e|  gamma_.pow(&e),
+            BatchSize::SmallInput,
+        )
+    });
+
+}
+
+
 fn bench_wrapping_ops(c: &mut Criterion) {
     let mut group = c.benchmark_group("wrapping ops");
     bench_division(&mut group);
@@ -221,6 +269,8 @@ fn bench_montgomery(c: &mut Criterion) {
 
 fn bench_modular_ops(c: &mut Criterion) {
     let mut group = c.benchmark_group("modular ops");
+    bench_inv_mod_rsa(&mut group);
+    bench_mod_exp_paillier(&mut group);
     bench_shifts(&mut group);
     bench_inv_mod(&mut group);
     group.finish();
@@ -228,8 +278,8 @@ fn bench_modular_ops(c: &mut Criterion) {
 
 criterion_group!(
     benches,
-    bench_wrapping_ops,
-    bench_montgomery,
+  //  bench_wrapping_ops,
+  //  bench_montgomery,
     bench_modular_ops
 );
 
